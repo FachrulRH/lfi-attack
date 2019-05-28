@@ -1,6 +1,6 @@
 # LFI Attacker
 Local File Inclusion attack in file download query web application
-- Found directory in website
+- Found LFI directory in website
 - get the file on directory has been found
 
 <b><h1>How To Use: </h1></b>
