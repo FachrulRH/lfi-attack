@@ -47,17 +47,12 @@ def scan(links):
 		for link in links:
 			link = target + link
 			req = requests.get(link)
-			content = req.headers.get('Content-Type')
-			if content == 'application/pdf':	
-				if 'a' in req.text:
-					print('\033[0;32m[+] Path found !: %s'% link)
-					founds.append(link) 
-				else:
-					print('\033[0;31m[-] %s'% link)
+			content = req.headers.get('Content-Type')	
+			if 'a' in req.text:
+				print('\033[0;32m[+] Path found !: %s'% link)
+				founds.append(link) 
 			else:
-				print("\033[0;31mContent type is text/html this tools doesn't support")
-				print("\033[0;36mquit.....")
-				quit()
+				print('\033[0;31m[-] %s'% link)
 	except KeyboardInterrupt:
 		print("\nCTRL+C detected !")
 		print("\033[0;36mSystem quit.....")
